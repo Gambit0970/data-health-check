@@ -1,0 +1,7 @@
+customer_id,name,email,age,city
+1,Alice,alice@example.com,34,York
+2,Bob,bob@example.com,,Leeds
+3,Charlie,charlie@example.com,42,Manchester
+3,Charlie,charlie@example.com,42,Manchester
+4, David ,david@example.com,29,York
+5,Eve,,31,
