@@ -85,6 +85,60 @@ def score_label(score: float) -> str:
 
     return "POOR"
 
+def build_recommendations(
+    df: pd.DataFrame,
+    duplicate_count: int,
+    whitespace_issues: dict,
+    empty_columns: list,
+) -> list[str]:
+    recommendations = []
+
+    # Missing values
+    missing = df.isna().sum()
+    missing_columns = [
+        column
+        for column, count in missing.items()
+        if count > 0
+    ]
+
+    total_missing = int(missing.sum())
+
+    if total_missing > 0:
+        columns_text = ", ".join(missing_columns)
+
+        recommendations.append(
+            f"Review {total_missing} missing value(s) "
+            f"across: {columns_text}."
+        )
+
+    # Duplicate rows
+    if duplicate_count > 0:
+        recommendations.append(
+            f"Remove or review {duplicate_count} duplicate row(s)."
+        )
+
+    # Whitespace
+    for column, count in whitespace_issues.items():
+        recommendations.append(
+            f"Trim leading/trailing whitespace in "
+            f"'{column}' ({count} value(s))."
+        )
+
+    # Empty columns
+    if empty_columns:
+        recommendations.append(
+            "Remove completely empty columns unless they are "
+            "required for a downstream process: "
+            + ", ".join(empty_columns)
+            + "."
+        )
+
+    if not recommendations:
+        recommendations.append(
+            "No immediate data-quality actions are required."
+        )
+
+    return recommendations
 
 def analyse_csv(file_path: str) -> None:
     path = Path(file_path)
@@ -148,6 +202,7 @@ def analyse_csv(file_path: str) -> None:
     issues = []
     structural_issues = 0
     whitespace_count = 0
+    whitespace_issues = {}
 
     # Blank column names
     blank_column_names = [
@@ -201,6 +256,10 @@ def analyse_csv(file_path: str) -> None:
         )
 
         if column_whitespace_count > 0:
+            whitespace_issues[column] = int(
+               column_whitespace_count
+            )
+
             issues.append(
                 f"{column}: "
                 f"{column_whitespace_count} values "
@@ -270,9 +329,26 @@ def analyse_csv(file_path: str) -> None:
         f"\nRating: {score_label(scores['overall'])}"
     )
 
+
+    recommendations = build_recommendations(
+        df=df,
+        duplicate_count=duplicate_count,
+        whitespace_issues=whitespace_issues,
+        empty_columns=empty_columns,
+    )
+
+    print("\nRECOMMENDATIONS")
+    print("=" * 60)
+
+    for number, recommendation in enumerate(
+        recommendations,
+        start=1,
+    ):
+        print(f"{number}. {recommendation}")
+
     print("\nSUMMARY")
     print("-" * 60)
-
+    
     print(f"Missing values: {total_missing:,}")
     print(f"Duplicate rows: {duplicate_count:,}")
     print(f"Other issues: {len(issues):,}")
