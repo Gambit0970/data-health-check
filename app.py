@@ -150,13 +150,25 @@ st.divider()
 
 st.subheader("Recommendations")
 
-for number, recommendation in enumerate(
-    results["recommendations"],
-    start=1,
-):
-    st.warning(
-        f"{number}. {recommendation}"
-    )
+for recommendation in results["recommendations"]:
+
+    severity = recommendation["severity"]
+    title = recommendation["title"]
+    message = recommendation["message"]
+
+    text = f"**{title}** — {message}"
+
+    if severity == "CRITICAL":
+        st.error(text)
+
+    elif severity == "WARNING":
+        st.warning(text)
+
+    elif severity == "INFO":
+        st.info(text)
+
+    elif severity == "SUCCESS":
+        st.success(text)
 
 
 st.divider()

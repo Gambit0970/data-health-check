@@ -6,60 +6,162 @@ def clamp(value: float) -> float:
 
 
 def score_label(score: float) -> str:
-    if score >= 90:
+    if score >= 98:
         return "EXCELLENT"
-    if score >= 75:
-        return "GOOD"
-    if score >= 50:
-        return "NEEDS ATTENTION"
-    return "POOR"
 
+    if score >= 90:
+        return "GOOD"
+
+    if score >= 75:
+        return "NEEDS ATTENTION"
+
+    return "POOR"
 
 def score_dataset(
     df: pd.DataFrame,
     duplicate_count: int,
     whitespace_count: int,
     structural_issue_count: int,
+    missing_column_count: int,
+    whitespace_column_count: int,
 ) -> dict:
-    total_cells = df.shape[0] * df.shape[1]
+
+    row_count = len(df)
+    column_count = len(df.columns)
+    total_cells = row_count * column_count
     total_missing = int(df.isna().sum().sum())
+
+    # -------------------------------------------------
+    # COMPLETENESS
+    #
+    # Penalise both:
+    # - percentage of missing cells
+    # - percentage of columns affected
+    # -------------------------------------------------
 
     if total_cells == 0:
         completeness = 0.0
     else:
-        completeness = (
-            1 - total_missing / total_cells
-        ) * 100
+        missing_cell_rate = (
+            total_missing / total_cells
+        )
 
-    if len(df) == 0:
+        missing_column_rate = (
+            missing_column_count / column_count
+            if column_count > 0
+            else 0
+        )
+
+        completeness_penalty = (
+            missing_cell_rate * 150
+            + missing_column_rate * 12
+        )
+
+        completeness = (
+            100 - min(
+                completeness_penalty,
+                50,
+            )
+        )
+
+    # -------------------------------------------------
+    # UNIQUENESS
+    #
+    # Duplicates get:
+    # - a rate-based penalty
+    # - an additional count penalty
+    #
+    # This stops one duplicate being almost invisible
+    # in a medium-sized dataset.
+    # -------------------------------------------------
+
+    if row_count == 0:
         uniqueness = 0.0
     else:
+        duplicate_rate = (
+            duplicate_count / row_count
+        )
+
+        duplicate_penalty = (
+            duplicate_rate * 100
+            + min(
+                duplicate_count * 3,
+                12,
+            )
+        )
+
         uniqueness = (
-            1 - duplicate_count / len(df)
-        ) * 100
+            100 - min(
+                duplicate_penalty,
+                40,
+            )
+        )
+
+    # -------------------------------------------------
+    # CONSISTENCY
+    #
+    # Penalise:
+    # - individual whitespace problems
+    # - how many string columns are affected
+    # -------------------------------------------------
+
+    string_columns = list(
+        df.select_dtypes(
+            include="str"
+        ).columns
+    )
 
     string_cells = 0
 
-    for column in df.select_dtypes(include="str").columns:
+    for column in string_columns:
         string_cells += int(
             df[column].notna().sum()
         )
 
     if string_cells == 0:
         consistency = 100.0
-    else:
-        consistency = (
-            1 - whitespace_count / string_cells
-        ) * 100
 
-    structure = 100 - (
-        structural_issue_count * 20
+    else:
+        whitespace_rate = (
+            whitespace_count / string_cells
+        )
+
+        whitespace_column_rate = (
+            whitespace_column_count
+            / len(string_columns)
+            if string_columns
+            else 0
+        )
+
+        consistency_penalty = (
+            whitespace_rate * 100
+            + whitespace_column_rate * 10
+        )
+
+        consistency = (
+            100 - min(
+                consistency_penalty,
+                40,
+            )
+        )
+
+    # -------------------------------------------------
+    # STRUCTURE
+    #
+    # Structural problems are more serious.
+    # Each one removes 15 points.
+    # -------------------------------------------------
+
+    structure = (
+        100 - structural_issue_count * 15
     )
 
     completeness = clamp(completeness)
     uniqueness = clamp(uniqueness)
     consistency = clamp(consistency)
     structure = clamp(structure)
+
+    # Weighted overall score
 
     overall = (
         completeness * 0.40
@@ -70,12 +172,23 @@ def score_dataset(
 
     return {
         "overall": round(overall, 1),
-        "completeness": round(completeness, 1),
-        "uniqueness": round(uniqueness, 1),
-        "consistency": round(consistency, 1),
-        "structure": round(structure, 1),
+        "completeness": round(
+            completeness,
+            1,
+        ),
+        "uniqueness": round(
+            uniqueness,
+            1,
+        ),
+        "consistency": round(
+            consistency,
+            1,
+        ),
+        "structure": round(
+            structure,
+            1,
+        ),
     }
-
 
 def analyse_dataframe(df: pd.DataFrame) -> dict:
     duplicate_count = int(
@@ -209,14 +322,18 @@ def analyse_dataframe(df: pd.DataFrame) -> dict:
         df=df,
         duplicate_count=duplicate_count,
         whitespace_count=whitespace_count,
-        structural_issue_count=(
-            structural_issues
+        structural_issue_count=structural_issues,
+        missing_column_count=len(
+            missing_details
         ),
-    )
-
-    recommendations = []
+        whitespace_column_count=len(
+            whitespace_issues
+        ),
+        )
 
     total_missing = int(missing.sum())
+
+    recommendations = []
 
     if total_missing > 0:
         columns = [
@@ -225,51 +342,83 @@ def analyse_dataframe(df: pd.DataFrame) -> dict:
         ]
 
         recommendations.append(
-            f"Review {total_missing} missing "
-            "value(s) across: "
-            + ", ".join(map(str, columns))
-            + "."
+            {
+                "severity": "WARNING",
+                "title": "Missing data",
+                "message": (
+                    f"Review {total_missing} missing "
+                    "value(s) across: "
+                    + ", ".join(map(str, columns))
+                    + "."
+                ),
+            }
         )
 
     if duplicate_count > 0:
         recommendations.append(
-            f"Remove or review "
-            f"{duplicate_count} duplicate "
-            "row(s)."
+            {
+                "severity": "WARNING",
+                "title": "Duplicate records",
+                "message": (
+                    f"Remove or review "
+                    f"{duplicate_count} duplicate row(s)."
+                ),
+            }
         )
 
-    for column, count in (
-        whitespace_issues.items()
-    ):
+    for column, count in whitespace_issues.items():
         recommendations.append(
-            f"Trim leading/trailing whitespace "
-            f"in '{column}' "
-            f"({count} value(s))."
+            {
+                "severity": "INFO",
+                "title": "Formatting inconsistency",
+                "message": (
+                    f"Trim leading/trailing whitespace "
+                    f"in '{column}' "
+                    f"({count} value(s))."
+                ),
+            }
         )
 
     if empty_columns:
         recommendations.append(
-            "Remove completely empty columns "
-            "unless required downstream: "
-            + ", ".join(
-                map(str, empty_columns)
-            )
-            + "."
+            {
+                "severity": "CRITICAL",
+                "title": "Empty columns",
+                "message": (
+                    "Remove completely empty columns "
+                    "unless required downstream: "
+                    + ", ".join(
+                        map(str, empty_columns)
+                    )
+                    + "."
+                ),
+            }
         )
 
     if unnamed_columns:
         recommendations.append(
-            "Rename or remove unnamed columns "
-            "so every field has a meaningful "
-            "name."
+            {
+                "severity": "CRITICAL",
+                "title": "Unnamed columns",
+                "message": (
+                    "Rename or remove unnamed columns "
+                    "so every field has a meaningful name."
+                ),
+            }
         )
 
     if not recommendations:
         recommendations.append(
-            "No immediate data-quality actions "
-            "are required."
+            {
+                "severity": "SUCCESS",
+                "title": "No action required",
+                "message": (
+                    "No immediate data-quality actions "
+                    "are required."
+                ),
+            }
         )
-
+        
     column_types = [
         {
             "Column": column,
