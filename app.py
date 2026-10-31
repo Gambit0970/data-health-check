@@ -1,10 +1,11 @@
 import html
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
 from src.analyser import analyse_dataframe
-
+from src.report import build_html_report
 
 # ---------------------------------------------------------
 # PAGE CONFIG
@@ -443,6 +444,56 @@ with st.expander("How to interpret issue severity"):
             "No detected action required."
         )
 
+# ---------------------------------------------------------
+# DOWNLOAD REPORT
+# ---------------------------------------------------------
+
+st.subheader("Download Report")
+
+report_html = build_html_report(
+    file_name=uploaded_file.name,
+    results=results,
+)
+
+report_name = (
+    Path(uploaded_file.name).stem
+    + "_data_health_report.html"
+)
+
+with st.container(border=True):
+
+    report_left, report_right = st.columns(
+        [3, 1],
+        vertical_alignment="center",
+    )
+
+    with report_left:
+
+        st.markdown(
+            "### 📄 Keep a copy of your results"
+        )
+
+        st.write(
+            "Download a standalone Data Health Report "
+            "containing your score, quality breakdown, "
+            "detected issues and recommended actions."
+        )
+
+        st.caption(
+            "The report opens in any modern web browser "
+            "and can also be printed or saved as PDF."
+        )
+
+    with report_right:
+
+        st.download_button(
+            label="Download report",
+            data=report_html,
+            file_name=report_name,
+            mime="text/html",
+            type="primary",
+            use_container_width=True,
+        )
 
 # ---------------------------------------------------------
 # COLUMN HEALTH
